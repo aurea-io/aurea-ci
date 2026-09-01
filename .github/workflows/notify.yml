@@ -76,22 +76,11 @@ jobs:
           [[ "${STATUS}" == "skipped" ]] && result_label="⏭️ omitido"
           [[ "${STATUS}" == "failure" ]] && result_label="❌ fallido"
           if [[ "${EVENT_TYPE}" == "image" ]]; then
-            message=$(cat <<EOF
-Aurea publicación de imagen ${result_label} 🚀
-Repo: ${GITHUB_REPOSITORY}
-Imagen: ${IMAGE}
-Versión: ${VERSION}
-Commit: ${short_commit}
-EOF
-)
+            printf -v message 'Aurea publicación de imagen %s 🚀\nRepo: %s\nImagen: %s\nVersión: %s\nCommit: %s' \
+              "${result_label}" "${GITHUB_REPOSITORY}" "${IMAGE}" "${VERSION}" "${short_commit}"
           else
-            message=$(cat <<EOF
-Aurea deploy ${result_label}
-Repo: ${GITHUB_REPOSITORY}
-Entorno: ${ENVIRONMENT}
-Commit: ${short_commit}
-EOF
-)
+            printf -v message 'Aurea deploy %s\nRepo: %s\nEntorno: %s\nCommit: %s' \
+              "${result_label}" "${GITHUB_REPOSITORY}" "${ENVIRONMENT}" "${short_commit}"
             [[ -n "${DEPLOY_URL}" ]] && message+=$'\nURL: '${DEPLOY_URL}
           fi
           {
