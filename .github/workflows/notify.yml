@@ -32,6 +32,11 @@ on:
         required: false
         default: ''
         type: string
+      status:
+        description: Result of the operation
+        required: false
+        default: success
+        type: string
 
 permissions:
   contents: read
@@ -53,6 +58,7 @@ jobs:
       ENVIRONMENT: ${{ inputs.environment }}
       DEPLOY_URL: ${{ inputs.deploy-url }}
       SOURCE_COMMIT: ${{ inputs.source-commit || github.sha }}
+      STATUS: ${{ inputs.status }}
     steps:
       - name: Build notification message
         id: message
@@ -60,10 +66,12 @@ jobs:
         run: |
           set -euo pipefail
           short_commit="${SOURCE_COMMIT:0:7}"
+          result_label="✅ exitoso"
+          [[ "${STATUS}" != "success" ]] && result_label="❌ fallido"
           if [[ "${EVENT_TYPE}" == "image" ]]; then
-            message="Aurea nueva imagen 🚀\nRepo: ${GITHUB_REPOSITORY}\nImagen: ${IMAGE}\nVersión: ${VERSION}\nCommit: ${short_commit}"
+            message="Aurea publicación de imagen ${result_label} 🚀\nRepo: ${GITHUB_REPOSITORY}\nImagen: ${IMAGE}\nVersión: ${VERSION}\nCommit: ${short_commit}"
           else
-            message="Aurea nuevo deploy ✅\nRepo: ${GITHUB_REPOSITORY}\nEntorno: ${ENVIRONMENT}\nCommit: ${short_commit}"
+            message="Aurea deploy ${result_label}\nRepo: ${GITHUB_REPOSITORY}\nEntorno: ${ENVIRONMENT}\nCommit: ${short_commit}"
             [[ -n "${DEPLOY_URL}" ]] && message+="\nURL: ${DEPLOY_URL}"
           fi
           {
