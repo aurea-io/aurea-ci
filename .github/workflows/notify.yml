@@ -48,6 +48,11 @@ on:
         required: false
         default: ''
         type: string
+      commit-message:
+        description: Commit message that triggered the operation
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -71,22 +76,26 @@ jobs:
       SOURCE_COMMIT: ${{ inputs.source-commit || github.sha }}
       STATUS: ${{ inputs.status }}
       REASON: ${{ inputs.reason }}
+      COMMIT_MESSAGE: ${{ inputs.commit-message || github.event.head_commit.message || 'workflow dispatch' }}
     steps:
       - name: Build notification message
         id: message
         shell: bash
         run: |
           set -euo pipefail
-          short_commit="${SOURCE_COMMIT:0:7}"
+          commit_id="${SOURCE_COMMIT}"
+          commit_message="${COMMIT_MESSAGE:-workflow dispatch}"
+          commit_message="${commit_message%%$'\n'*}"
+          commit_message="${commit_message//$'\r'/ }"
           result_label="✅ exitoso"
           [[ "${STATUS}" == "skipped" ]] && result_label="⏭️ omitido"
           [[ "${STATUS}" == "failure" ]] && result_label="❌ fallido"
           if [[ "${EVENT_TYPE}" == "image" ]]; then
-            printf -v message 'Aurea publicación de imagen %s 🚀\nRepo: %s\nImagen: %s\nVersión: %s\nCommit: %s' \
-              "${result_label}" "${GITHUB_REPOSITORY}" "${IMAGE}" "${VERSION}" "${short_commit}"
+            printf -v message 'Aurea publicación de imagen %s 🚀\nRepo: %s\nImagen: %s\nVersión: %s\nCommit: %s\nMensaje: %s' \
+              "${result_label}" "${GITHUB_REPOSITORY}" "${IMAGE}" "${VERSION}" "${commit_id}" "${commit_message}"
           else
-            printf -v message 'Aurea deploy %s\nRepo: %s\nEntorno: %s\nCommit: %s' \
-              "${result_label}" "${GITHUB_REPOSITORY}" "${ENVIRONMENT}" "${short_commit}"
+            printf -v message 'Aurea deploy %s\nRepo: %s\nEntorno: %s\nVersión: %s\nCommit: %s\nMensaje: %s' \
+              "${result_label}" "${GITHUB_REPOSITORY}" "${ENVIRONMENT}" "${VERSION}" "${commit_id}" "${commit_message}"
             [[ -n "${DEPLOY_URL}" ]] && message+=$'\nURL: '${DEPLOY_URL}
           fi
           [[ -n "${REASON}" ]] && message+=$'\nMotivo: '${REASON}
