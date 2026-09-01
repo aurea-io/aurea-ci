@@ -43,6 +43,11 @@ on:
         required: false
         default: success
         type: string
+      reason:
+        description: Reason when an operation is skipped or fails
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -65,6 +70,7 @@ jobs:
       DEPLOY_URL: ${{ inputs.deploy-url }}
       SOURCE_COMMIT: ${{ inputs.source-commit || github.sha }}
       STATUS: ${{ inputs.status }}
+      REASON: ${{ inputs.reason }}
     steps:
       - name: Build notification message
         id: message
@@ -83,6 +89,7 @@ jobs:
               "${result_label}" "${GITHUB_REPOSITORY}" "${ENVIRONMENT}" "${short_commit}"
             [[ -n "${DEPLOY_URL}" ]] && message+=$'\nURL: '${DEPLOY_URL}
           fi
+          [[ -n "${REASON}" ]] && message+=$'\nMotivo: '${REASON}
           {
             echo 'message<<AUREA_MESSAGE'
             echo "${message}"
