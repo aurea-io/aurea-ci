@@ -2,6 +2,12 @@ name: Aurea Notifications
 
 on:
   workflow_call:
+    secrets:
+      TELEGRAM_BOT_TOKEN: { required: false }
+      TELEGRAM_CHAT_ID: { required: false }
+      DISCORD_BOT_TOKEN: { required: false }
+      DISCORD_CHANNEL_ID: { required: false }
+      DISCORD_WEBHOOK_URL: { required: false }
     inputs:
       event-type:
         description: Notification event (image or deploy)
@@ -67,7 +73,8 @@ jobs:
           set -euo pipefail
           short_commit="${SOURCE_COMMIT:0:7}"
           result_label="✅ exitoso"
-          [[ "${STATUS}" != "success" ]] && result_label="❌ fallido"
+          [[ "${STATUS}" == "skipped" ]] && result_label="⏭️ omitido"
+          [[ "${STATUS}" == "failure" ]] && result_label="❌ fallido"
           if [[ "${EVENT_TYPE}" == "image" ]]; then
             message="Aurea publicación de imagen ${result_label} 🚀\nRepo: ${GITHUB_REPOSITORY}\nImagen: ${IMAGE}\nVersión: ${VERSION}\nCommit: ${short_commit}"
           else
