@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate Aurea 3-level hierarchy (Section -> Page -> Module) and FBAC/RBAC isomorphism.
 
-Reads canonical taxonomy dynamically from `docs/modules-dynamic/taxonomy.json` or `scripts/taxonomy.json`.
+Reads canonical taxonomy dynamically from `taxonomy/structure.json`.
 """
 
 from __future__ import annotations
@@ -22,9 +22,11 @@ def error(path: Path | str, message: str) -> None:
 
 def load_taxonomy() -> dict[str, set[str]]:
     candidates = [
+        ROOT / "docs" / "modules-dynamic" / "taxonomy" / "structure.json",
+        Path(__file__).parent / "taxonomy" / "structure.json",
+        ROOT.parent / "aurea-docs" / "docs" / "modules-dynamic" / "taxonomy" / "structure.json",
         ROOT / "docs" / "modules-dynamic" / "taxonomy.json",
         Path(__file__).parent / "taxonomy.json",
-        ROOT.parent / "aurea-docs" / "docs" / "modules-dynamic" / "taxonomy.json",
     ]
     for c in candidates:
         if c.exists():
@@ -63,7 +65,7 @@ def validate_backend(sections_dir: Path, canonical_sections: dict[str, set[str]]
             continue
         if item.name not in canonical_sections:
             problems.append(
-                f"Carpeta de sección '{item.name}' no está registrada en taxonomy.json. "
+                f"Carpeta de sección '{item.name}' no está registrada en taxonomy/structure.json. "
                 f"Secciones válidas: {sorted(canonical_sections.keys())}"
             )
             continue
@@ -74,7 +76,7 @@ def validate_backend(sections_dir: Path, canonical_sections: dict[str, set[str]]
                 continue
             if page_dir.name not in allowed_pages:
                 problems.append(
-                    f"Página '{page_dir.name}' en sección '{item.name}' no está registrada en taxonomy.json. "
+                    f"Página '{page_dir.name}' en sección '{item.name}' no está registrada en taxonomy/structure.json. "
                     f"Páginas autorizadas para '{item.name}': {sorted(allowed_pages)}"
                 )
 
@@ -109,7 +111,7 @@ def validate_frontend(sections_dir: Path, canonical_sections: dict[str, set[str]
             continue
         if item.name not in canonical_sections:
             problems.append(
-                f"Carpeta de sección '{item.name}' no está registrada en taxonomy.json en Frontend. "
+                f"Carpeta de sección '{item.name}' no está registrada en taxonomy/structure.json en Frontend. "
                 f"Secciones válidas: {sorted(canonical_sections.keys())}"
             )
             continue
@@ -120,7 +122,7 @@ def validate_frontend(sections_dir: Path, canonical_sections: dict[str, set[str]
                 continue
             if page_dir.name not in allowed_pages:
                 problems.append(
-                    f"Página '{page_dir.name}' en sección '{item.name}' no está registrada en taxonomy.json. "
+                    f"Página '{page_dir.name}' en sección '{item.name}' no está registrada en taxonomy/structure.json. "
                     f"Páginas autorizadas para '{item.name}': {sorted(allowed_pages)}"
                 )
 
@@ -168,7 +170,7 @@ def main() -> int:
             error("architecture", p)
         return 1
 
-    print("✅ Arquitectura e isomorfismo 100% conformes con la taxonomía oficial.")
+    print("✅ Arquitectura e isomorfismo 100% conformes con taxonomy/structure.json.")
     return 0
 
 

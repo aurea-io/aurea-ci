@@ -1,0 +1,36 @@
+{
+  "version": "1.0.0",
+  "description": "Taxonomía canónica de tipos de cambios y tareas para labels type:<nombre>.",
+  "types": {
+    "feature": {
+      "name": "Nueva Funcionalidad",
+      "description": "Nueva capacidad de negocio, endpoint, página o módulo.",
+      "color": "1d76db"
+    },
+    "bug": {
+      "name": "Corrección de Error",
+      "description": "Solución de un defecto o desvío respecto a la especificación normativa.",
+      "color": "d73a4a"
+    },
+    "docs": {
+      "name": "Documentación",
+      "description": "Actualización de especificaciones normativas, contratos, decisiones o reportes de evidencias.",
+      "color": "0075ca"
+    },
+    "refactor": {
+      "name": "Refactorización",
+      "description": "Modificación interna de código para mejorar estructura sin alterar comportamiento.",
+      "color": "a2eeef"
+    },
+    "test": {
+      "name": "Pruebas y Verificación",
+      "description": "Nuevos tests unitarios, de integración, E2E o tests de arquitectura.",
+      "color": "fbca04"
+    },
+    "chore": {
+      "name": "Mantenimiento y Tooling",
+      "description": "Actualización de dependencias, scripts de build, configuración y tooling de desarrollo.",
+      "color": "cfd3d7"
+    }
+  }
+}

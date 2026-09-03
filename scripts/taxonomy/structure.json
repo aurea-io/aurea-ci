@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "description": "Taxonomía Canónica de Aurea: Secciones, Páginas y Módulos. Fuente única de verdad para CI, planes comerciales y validación arquitectónica.",
+  "description": "Estructura canónica de Secciones, Páginas y Módulos de Aurea. De aquí se derivan automáticamente las labels funcionales area:<section>.<page>.",
   "sections": {
     "services": {
       "name": "Servicios",
