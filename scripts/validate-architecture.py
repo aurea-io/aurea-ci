@@ -24,12 +24,11 @@ def error(path: Path | str, message: str) -> None:
 
 
 def load_taxonomy() -> dict[str, set[str]]:
+    # 1. Look for taxonomy/structure.json in aurea-docs (workspace or .aurea-docs checkout)
     candidates = [
         ROOT / "docs" / "modules-dynamic" / "taxonomy" / "structure.json",
-        Path(__file__).parent / "taxonomy" / "structure.json",
+        ROOT / ".aurea-docs" / "docs" / "modules-dynamic" / "taxonomy" / "structure.json",
         ROOT.parent / "aurea-docs" / "docs" / "modules-dynamic" / "taxonomy" / "structure.json",
-        ROOT / "docs" / "modules-dynamic" / "taxonomy.json",
-        Path(__file__).parent / "taxonomy.json",
     ]
     for c in candidates:
         if c.exists():
@@ -38,12 +37,29 @@ def load_taxonomy() -> dict[str, set[str]]:
                 sections_dict = data.get("sections", {})
                 canonical: dict[str, set[str]] = {}
                 for sec_key, sec_val in sections_dict.items():
-                    pages = set(sec_val.get("pages", {}).keys())
-                    canonical[sec_key] = pages
-                print(f"📋 Taxonomía oficial cargada desde: {c}")
+                    canonical[sec_key] = set(sec_val.get("pages", {}).keys())
+                print(f"📋 Taxonomía oficial cargada desde aurea-docs: {c}")
                 return canonical
             except Exception as exc:
                 print(f"⚠️ Error al leer {c}: {exc}", file=sys.stderr)
+
+    # 2. In CI: fetch live from aurea-io/aurea-docs repository via GitHub API / Raw
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    url = "https://raw.githubusercontent.com/aurea-io/aurea-docs/main/docs/modules-dynamic/taxonomy/structure.json"
+    try:
+        req = urllib.request.Request(url)
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            sections_dict = data.get("sections", {})
+            canonical: dict[str, set[str]] = {}
+            for sec_key, sec_val in sections_dict.items():
+                canonical[sec_key] = set(sec_val.get("pages", {}).keys())
+            print("📋 Taxonomía oficial descargada dinámicamente desde aurea-io/aurea-docs")
+            return canonical
+    except Exception as exc:
+        print(f"⚠️ No se pudo obtener taxonomy desde aurea-docs: {exc}", file=sys.stderr)
 
     print("⚠️ Usando taxonomía por defecto", file=sys.stderr)
     return {
