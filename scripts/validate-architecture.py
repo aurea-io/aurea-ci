@@ -22,7 +22,18 @@ def error(path: Path | str, message: str) -> None:
     print(f"::error file={path}:{message}", file=sys.stderr)
 
 
-def load_taxonomy() -> dict[str, set[str]]:
+def load_taxonomy() -> tuple[dict[str, set[str]], dict[str, str]]:
+    def parse(data: dict) -> tuple[dict[str, set[str]], dict[str, str]]:
+        sections_dict = data.get("sections", {})
+        canonical: dict[str, set[str]] = {}
+        paths: dict[str, str] = {}
+        for sec_key, sec_val in sections_dict.items():
+            canonical[sec_key] = set(sec_val.get("pages", {}).keys())
+            for page_key, page_val in sec_val.get("pages", {}).items():
+                p_path = page_val.get("path") or f"/{sec_key}/{page_key}"
+                paths[f"{sec_key}.{page_key}"] = p_path
+        return canonical, paths
+
     # 1. Look for taxonomy/structure.json in aurea-docs (workspace or .aurea-docs checkout)
     candidates = [
         ROOT / "docs" / "modules-dynamic" / "taxonomy" / "structure.json",
@@ -33,12 +44,9 @@ def load_taxonomy() -> dict[str, set[str]]:
         if c.exists():
             try:
                 data = json.loads(c.read_text(encoding="utf-8"))
-                sections_dict = data.get("sections", {})
-                canonical: dict[str, set[str]] = {}
-                for sec_key, sec_val in sections_dict.items():
-                    canonical[sec_key] = set(sec_val.get("pages", {}).keys())
+                canonical, paths = parse(data)
                 print(f"📋 Taxonomía oficial cargada desde aurea-docs: {c}")
-                return canonical
+                return canonical, paths
             except Exception as exc:
                 print(f"⚠️ Error al leer {c}: {exc}", file=sys.stderr)
 
@@ -51,17 +59,14 @@ def load_taxonomy() -> dict[str, set[str]]:
             req.add_header("Authorization", f"Bearer {token}")
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            sections_dict = data.get("sections", {})
-            canonical: dict[str, set[str]] = {}
-            for sec_key, sec_val in sections_dict.items():
-                canonical[sec_key] = set(sec_val.get("pages", {}).keys())
+            canonical, paths = parse(data)
             print("📋 Taxonomía oficial descargada dinámicamente desde aurea-io/aurea-docs")
-            return canonical
+            return canonical, paths
     except Exception as exc:
         print(f"⚠️ No se pudo obtener taxonomy desde aurea-docs: {exc}", file=sys.stderr)
 
     print("⚠️ Usando taxonomía por defecto", file=sys.stderr)
-    return {
+    default_sections = {
         "commerce": {"catalog", "orders", "inventory", "pos"},
         "services": {"bookings"},
         "gastronomy": {"tables", "kitchen", "public"},
@@ -69,6 +74,8 @@ def load_taxonomy() -> dict[str, set[str]]:
         "marketing": {"coupons", "loyalty"},
         "core": {"dashboard", "members", "theme", "billing"},
     }
+    default_paths = {f"{s}.{p}": f"/{s}/{p}" for s, pages in default_sections.items() for p in pages}
+    return default_sections, default_paths
 
 
 def validate_backend(sections_dir: Path, canonical_sections: dict[str, set[str]]) -> list[str]:
@@ -158,6 +165,106 @@ def validate_frontend(sections_dir: Path, canonical_sections: dict[str, set[str]
                         f"Isomorfismo roto en '{rel}': feature key '{key}' "
                         f"no pertenece al namespace de '{section}.{page}'."
                     )
+
+    return problems
+
+
+def validate_page_routes(root: Path, canonical_sections: dict[str, set[str]], canonical_paths: dict[str, str]) -> list[str]:
+    problems: list[str] = []
+
+    # Mapping of known page keys to section
+    page_to_section: dict[str, str] = {}
+    for sec, pages in canonical_sections.items():
+        for p in pages:
+            page_to_section[p] = sec
+
+    dirs_to_check = [root]
+    for sub in ["business-backend", "business-frontend", "admin-backend", "admin-frontend"]:
+        p = root / sub
+        if p.exists() and p.is_dir():
+            dirs_to_check.append(p)
+
+    for d in dirs_to_check:
+        # 1. Inspect Backend tenant.service.ts
+        tenant_service = d / "src" / "tenant" / "core" / "tenant.service.ts"
+        if tenant_service.exists():
+            content = tenant_service.read_text(encoding="utf-8")
+            legacy_flat_tokens = [
+                "'/appointments'",
+                '"/appointments"',
+                "'/restaurant'",
+                '"/restaurant"',
+                "`/${pageKey}`",
+                "'/${pageKey}'",
+                '"/${pageKey}"',
+            ]
+            for token in legacy_flat_tokens:
+                if token in content:
+                    try:
+                        rel_file = tenant_service.relative_to(ROOT)
+                    except ValueError:
+                        rel_file = tenant_service
+                    problems.append(
+                        f"Ruta de página plana o no canónica detectada en {rel_file}: {token}. "
+                        f"Toda ruta de página debe tener como prefijo su sección canónica '/${{sectionKey}}/${{pageKey}}' según Regla 4.5 de aurea-docs."
+                    )
+
+        # 2. Inspect Frontend App.tsx
+        app_tsx = d / "src" / "App.tsx"
+        if app_tsx.exists():
+            content = app_tsx.read_text(encoding="utf-8")
+            route_pattern = re.compile(r'<Route\s+path=["\']([^"\']+)["\']')
+            try:
+                rel_app = app_tsx.relative_to(ROOT)
+            except ValueError:
+                rel_app = app_tsx
+
+            for match in route_pattern.finditer(content):
+                path_val = match.group(1).strip("/")
+                if not path_val or path_val in ("login", "register", "auth/magic", "auth/google/callback", "auth/forgot-password", "auth/reset-password") or path_val.startswith(("public/", "superadmin", "preview/")):
+                    continue
+
+                parts = path_val.split("/")
+                # If path has only 1 part (flat route like "bookings", "catalog", "orders", etc.)
+                if len(parts) == 1:
+                    page_key = parts[0]
+                    if page_key in page_to_section:
+                        sec = page_to_section[page_key]
+                        canonical_path = canonical_paths.get(f"{sec}.{page_key}", f"/{sec}/{page_key}")
+                        problems.append(
+                            f"Ruta de página plana sin prefijo de sección en {rel_app}: path='{match.group(1)}'. "
+                            f"Debe incluir su sección canónica: path='{canonical_path.lstrip('/')}' (o '{canonical_path}') según Regla 4.5 de aurea-docs."
+                        )
+                elif len(parts) >= 2:
+                    sec, page = parts[0], parts[1]
+                    if sec in canonical_sections and page not in canonical_sections[sec]:
+                        problems.append(
+                            f"Ruta no canónica en {rel_app}: la página '{page}' en ruta '{match.group(1)}' "
+                            f"no pertenece a la sección '{sec}' registrada en taxonomy/structure.json."
+                        )
+
+        # 3. Inspect manifests with path property
+        for manifest_file in d.rglob("*manifest*.ts"):
+            if any(ign in manifest_file.parts for ign in ("node_modules", "dist", ".git")):
+                continue
+            try:
+                content = manifest_file.read_text(encoding="utf-8")
+                path_match = re.search(r'path:\s*["\']([^"\']+)["\']', content)
+                if path_match:
+                    p_val = path_match.group(1)
+                    p_parts = p_val.strip("/").split("/")
+                    if len(p_parts) == 1 and p_parts[0] in page_to_section:
+                        sec = page_to_section[p_parts[0]]
+                        try:
+                            rel_m = manifest_file.relative_to(ROOT)
+                        except ValueError:
+                            rel_m = manifest_file
+                        problems.append(
+                            f"Manifiesto {rel_m} declara ruta plana '{p_val}'. "
+                            f"Debe incluir la sección canónica '/{sec}/{p_parts[0]}' según Regla 4.5."
+                        )
+            except Exception:
+                pass
 
     return problems
 
@@ -274,7 +381,7 @@ except ImportError:
 
 def main() -> int:
     print("🔍 Iniciando validación canónica de arquitectura e isomorfismo (Sección -> Página -> Módulo)...")
-    canonical_sections = load_taxonomy()
+    canonical_sections, canonical_paths = load_taxonomy()
     problems: list[str] = []
 
     be_sections = ROOT / "src" / "tenant" / "sections"
@@ -286,6 +393,9 @@ def main() -> int:
     if fe_sections.exists() and any(fe_sections.rglob("*.tsx")):
         print(f"📁 Validando Frontend en {fe_sections.relative_to(ROOT)}...")
         problems.extend(validate_frontend(fe_sections, canonical_sections))
+
+    print("📁 Validando rutas canónicas jerárquicas (/<sección>/<página>)...")
+    problems.extend(validate_page_routes(ROOT, canonical_sections, canonical_paths))
 
     src_dir = ROOT / "src"
     if has_cohesion_checker and src_dir.exists():
