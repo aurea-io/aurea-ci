@@ -2,6 +2,7 @@
 """Validate Aurea 3-level hierarchy (Section -> Page -> Module) and FBAC/RBAC isomorphism.
 
 Reads canonical taxonomy dynamically from `taxonomy/structure.json`.
+Provides detailed failure reporting, GitHub Step Summary and automated PR commenting.
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path.cwd()
@@ -61,7 +64,6 @@ def validate_backend(sections_dir: Path, canonical_sections: dict[str, set[str]]
         if not item.is_dir() or item.name.startswith("."):
             continue
         if item.name in LEGACY_SHIMS:
-            # Tolerated legacy shim if it re-exports
             continue
         if item.name not in canonical_sections:
             problems.append(
@@ -147,32 +149,126 @@ def validate_frontend(sections_dir: Path, canonical_sections: dict[str, set[str]
     return problems
 
 
+def post_pr_comment(report_md: str) -> None:
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    if not token or not event_path or not Path(event_path).exists():
+        return
+
+    try:
+        event = json.loads(Path(event_path).read_text(encoding="utf-8"))
+        pr_data = event.get("pull_request")
+        if not pr_data:
+            return
+        pr_number = pr_data.get("number")
+        repo_full_name = event.get("repository", {}).get("full_name") or os.environ.get("GITHUB_REPOSITORY")
+        if not pr_number or not repo_full_name:
+            return
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "aurea-ci-architecture-bot",
+        }
+
+        comments_url = f"https://api.github.com/repos/{repo_full_name}/issues/{pr_number}/comments"
+        req = urllib.request.Request(comments_url, headers=headers)
+        with urllib.request.urlopen(req) as resp:
+            comments = json.loads(resp.read().decode("utf-8"))
+
+        existing_id = None
+        marker = "<!-- aurea-architecture-report -->"
+        for c in comments:
+            if marker in c.get("body", ""):
+                existing_id = c["id"]
+                break
+
+        body_data = json.dumps({"body": report_md}).encode("utf-8")
+        if existing_id:
+            update_url = f"https://api.github.com/repos/{repo_full_name}/issues/comments/{existing_id}"
+            req = urllib.request.Request(update_url, data=body_data, headers=headers, method="PATCH")
+        else:
+            req = urllib.request.Request(comments_url, data=body_data, headers=headers, method="POST")
+
+        with urllib.request.urlopen(req) as resp:
+            if resp.status in (200, 201):
+                print(f"💬 Comentario de diagnóstico publicado/actualizado en PR #{pr_number}")
+    except Exception as exc:
+        print(f"⚠️ Nota: no se pudo publicar comentario en el PR (permisos o entorno): {exc}", file=sys.stderr)
+
+
+def report_and_exit(problems: list[str]) -> None:
+    for p in problems:
+        error("architecture", p)
+
+    lines = [
+        "## ❌ Error de Validación de Arquitectura e Isomorfismo",
+        "",
+        "> [!CAUTION]",
+        "> Se detectaron violaciones a la jerarquía canónica (**Sección → Página → Módulo**) o al principio de isomorfismo unificado.",
+        "",
+        "### 🔍 Fallas Detectadas:",
+    ]
+    for p in problems:
+        lines.append(f"- 🔴 **{p}**")
+
+    lines.extend([
+        "",
+        "---",
+        "",
+        "### 💡 ¿Cómo corregir este problema?",
+        "",
+        "#### 1. Si estás agregando una nueva página legítima:",
+        "1. Registrá la página y sus módulos en [`docs/modules-dynamic/taxonomy/structure.json`](https://github.com/aurea-io/aurea-docs/blob/main/docs/modules-dynamic/taxonomy/structure.json) en la sección correspondiente (`commerce`, `services`, `gastronomy`, etc.).",
+        "2. Creá el contrato tipado `features.ts` en Frontend y el controlador con `@FeatureDomain('<sección>.<página>')` en Backend.",
+        "3. Hacé commit de ambos cambios en tu PR.",
+        "",
+        "#### 2. Si el archivo o decorador está mal ubicado:",
+        "- **Ruta física obligatoria:** `src/tenant/sections/<sección>/<página>/`",
+        "- **Backend:** Asegurate de que `@FeatureDomain` declare exactamente `'<sección>.<página>'`.",
+        "- **Frontend:** Asegurate de que `features.ts` exporte claves con el prefijo `'<sección>.<página>.'`.",
+        "- **Tolerancia Cero:** No uses carpetas paraguas como `restaurant/` o carpetas planas sueltas.",
+        "",
+        "📖 **Documentación Normativa:** [Regla 7 de Arquitectura en aurea-docs](https://github.com/aurea-io/aurea-docs/blob/main/docs/modules-dynamic/technical.md)",
+        "",
+        "<!-- aurea-architecture-report -->",
+    ])
+    report_md = "\n".join(lines)
+
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step_summary:
+        try:
+            with open(step_summary, "a", encoding="utf-8") as f:
+                f.write("\n" + report_md + "\n")
+        except Exception as exc:
+            print(f"⚠️ No se pudo escribir en GITHUB_STEP_SUMMARY: {exc}", file=sys.stderr)
+
+    post_pr_comment(report_md)
+    print(f"\n❌ Se encontraron {len(problems)} violación(es) de arquitectura.", file=sys.stderr)
+    sys.exit(1)
+
+
 def main() -> int:
     print("🔍 Iniciando validación canónica de arquitectura e isomorfismo (Sección -> Página -> Módulo)...")
     canonical_sections = load_taxonomy()
     problems: list[str] = []
 
-    # Check for backend sections
     be_sections = ROOT / "src" / "tenant" / "sections"
     if be_sections.exists() and any(be_sections.rglob("*.controller.ts")):
         print(f"📁 Validando Backend en {be_sections.relative_to(ROOT)}...")
         problems.extend(validate_backend(be_sections, canonical_sections))
 
-    # Check for frontend sections
     fe_sections = ROOT / "src" / "tenant" / "sections"
     if fe_sections.exists() and any(fe_sections.rglob("*.tsx")):
         print(f"📁 Validando Frontend en {fe_sections.relative_to(ROOT)}...")
         problems.extend(validate_frontend(fe_sections, canonical_sections))
 
     if problems:
-        print(f"\n❌ Se encontraron {len(problems)} violación(es) de arquitectura:", file=sys.stderr)
-        for p in problems:
-            error("architecture", p)
-        return 1
+        report_and_exit(problems)
 
     print("✅ Arquitectura e isomorfismo 100% conformes con taxonomy/structure.json.")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

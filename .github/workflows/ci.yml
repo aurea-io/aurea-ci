@@ -17,6 +17,8 @@ on:
 permissions:
   contents: read
   security-events: write
+  pull-requests: write
+  issues: write
 
 jobs:
   validate:
@@ -39,9 +41,13 @@ jobs:
           persist-credentials: false
       - name: Validate module manifests (shared CI repository)
         if: github.repository == 'aurea-io/aurea-ci'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: scripts/validate-manifests.sh
       - name: Validate module manifests (consumer repository)
         if: github.repository != 'aurea-io/aurea-ci'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: .aurea-ci/scripts/validate-manifests.sh
       - name: Validate project profile
         env:
