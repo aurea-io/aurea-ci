@@ -13,95 +13,22 @@ jobs:
     name: Governance
     runs-on: ubuntu-latest
     steps:
-      - name: Validate issue and PR metadata
+      - name: Checkout shared CI
+        if: github.repository != 'aurea-io/aurea-ci'
+        uses: actions/checkout@v4
+        with:
+          repository: aurea-io/aurea-ci
+          ref: main
+          path: .aurea-ci
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - name: Validate governance metadata
         uses: actions/github-script@v7
         with:
           script: |
-            const allowedArea = /^area:/i;
-            const areaLabels = (labels) => labels.filter((label) => allowedArea.test(label.name));
-            const issueRef = /\b(?:close[sd]?|fix(?:e[sd]?)?|resolve[sd]?)\s+(?:(?:https?:\/\/github\.com\/[^/\s]+\/[^/\s]+\/issues\/)|(?:[^/\s#]+\/[^/\s#]+#))?#?\d+\b/i;
-
-            const isPR = context.eventName === 'pull_request';
-            const payload = isPR ? context.payload.pull_request : context.payload.issue;
-            const currentLabels = payload.labels || [];
-            const matchingAreas = areaLabels(currentLabels);
-            const hasValidArea = matchingAreas.length === 1;
-
-            const body = payload.body || '';
-            const hasIssueRef = isPR ? issueRef.test(body) : true;
-
-            if (!hasValidArea || !hasIssueRef) {
-              const errors = [];
-              if (!hasValidArea) {
-                if (matchingAreas.length === 0) {
-                  errors.push('Falta una etiqueta de área obligatoria (`area:<section>.<page>` o área transversal `area:<nombre>`).');
-                } else {
-                  errors.push(`El ítem tiene múltiples etiquetas de área (${matchingAreas.map(l => l.name).join(', ')}). Debe tener exactamente una.`);
-                }
-              }
-              if (!hasIssueRef) {
-                errors.push('El cuerpo del PR debe incluir una referencia de cierre a un issue existente (ej: `Closes #123` o `Resolves aurea-io/repo#123`).');
-              }
-
-              const reportMarkdown = [
-                '## ❌ Error de Gobernanza en ' + (isPR ? 'Pull Request' : 'Issue'),
-                '',
-                '> [!WARNING]',
-                '> No se cumplen los requisitos de gobernanza y metadatos de Aurea.',
-                '',
-                '### 🔍 Motivo del rechazo:',
-                ...errors.map(e => `- 🔴 **${e}**`),
-                '',
-                '---',
-                '',
-                '### 💡 ¿Cómo corregirlo?',
-                '',
-                '1. **Asigná exactamente una etiqueta de área válida:**',
-                '   - Funcionales: `area:commerce.catalog`, `area:commerce.orders`, `area:services.bookings`, `area:gastronomy.tables`, etc.',
-                '   - Transversales: `area:cross`, `area:ci`, `area:docs`, `area:auth`, `area:platform.tenants`, etc.',
-                '2. **Referencia de Issue (en PR):**',
-                '   - Añadí en la descripción del PR una línea como `Resolves #<numero-issue>` o `Closes aurea-io/<repo>#<numero-issue>`.',
-                '',
-                '📖 **Referencia:** Consulta [`taxonomy/structure.json`](https://github.com/aurea-io/aurea-docs/blob/main/docs/modules-dynamic/taxonomy/structure.json) y [`taxonomy/area.json`](https://github.com/aurea-io/aurea-docs/blob/main/docs/modules-dynamic/taxonomy/area.json).',
-                '',
-                '<!-- aurea-governance-report -->'
-              ].join('\n');
-
-              await core.summary.addRaw(reportMarkdown).write();
-
-              if (isPR) {
-                try {
-                  const prNumber = context.payload.pull_request.number;
-                  const owner = context.repo.owner;
-                  const repo = context.repo.repo;
-
-                  const { data: comments } = await github.rest.issues.listComments({
-                    owner,
-                    repo,
-                    issue_number: prNumber,
-                  });
-
-                  const existing = comments.find(c => c.body && c.body.includes('<!-- aurea-governance-report -->'));
-                  if (existing) {
-                    await github.rest.issues.updateComment({
-                      owner,
-                      repo,
-                      comment_id: existing.id,
-                      body: reportMarkdown,
-                    });
-                  } else {
-                    await github.rest.issues.createComment({
-                      owner,
-                      repo,
-                      issue_number: prNumber,
-                      body: reportMarkdown,
-                    });
-                  }
-                  console.log(`💬 Comentario de diagnóstico de gobernanza publicado en PR #${prNumber}`);
-                } catch (commentErr) {
-                  console.warn('⚠️ No se pudo publicar comentario en PR:', commentErr.message);
-                }
-              }
-
-              core.setFailed(errors.join(' | '));
-            }
+            const scriptPath = context.repo.repo === 'aurea-ci'
+              ? `${process.cwd()}/scripts/validate-governance.mjs`
+              : `${process.cwd()}/.aurea-ci/scripts/validate-governance.mjs`;
+            const { validateGovernance } = await import(scriptPath);
+            await validateGovernance({ github, context, core });
