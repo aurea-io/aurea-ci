@@ -65,6 +65,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   notify:
@@ -87,6 +88,7 @@ jobs:
       REASON: ${{ inputs.reason }}
       COMMIT_MESSAGE: ${{ inputs.commit-message || github.event.head_commit.message || 'workflow dispatch' }}
       DISCORD_MESSAGE_ID: ${{ inputs.discord-message-id }}
+      GITHUB_TOKEN: ${{ github.token }}
     outputs:
       discord-message-id: ${{ steps.discord.outputs.message-id }}
     steps:
@@ -97,6 +99,21 @@ jobs:
           set -euo pipefail
           commit_id="${SOURCE_COMMIT}"
           repository_name="${GITHUB_REPOSITORY##*/}"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          tag_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${VERSION}"
+          jobs_json="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header 'Accept: application/vnd.github+json' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100")"
+          job_url() {
+            local pattern="$1" job_id
+            job_id="$(jq -r --arg pattern "${pattern}" '[.jobs[] | select(.name | test($pattern; "i"))] | .[0].id // empty' <<<"${jobs_json}")"
+            if [[ -n "${job_id}" ]]; then
+              printf '%s/repos/%s/actions/runs/%s/job/%s' "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" "${job_id}"
+            else
+              printf '%s' "${run_url}"
+            fi
+          }
           commit_message="${COMMIT_MESSAGE:-workflow dispatch}"
           commit_message="${commit_message%%$'\n'*}"
           commit_message="${commit_message//$'\r'/ }"
@@ -105,12 +122,16 @@ jobs:
           [[ "${EVENT_TYPE}" == "deploy" && "${STATUS}" == "failure" ]] && result_label="⚠️ Publicado con error en deploy"
           [[ "${EVENT_TYPE}" == "deploy" && "${STATUS}" == "skipped" ]] && result_label="⏭️ Publicado (deploy omitido)"
           [[ "${EVENT_TYPE}" == "image" && "${STATUS}" == "failure" ]] && result_label="❌ Error al publicar"
+          version_link="[${VERSION}](${tag_url})"
           if [[ "${EVENT_TYPE}" == "image" ]]; then
-            printf -v message ':package: %s %s %s - %s' \
-              "${repository_name}" "${VERSION}" "${result_label#* }" "${commit_message}"
+            publish_link="$(job_url 'Publish Docker image')"
+            printf -v message ':package: %s %s [Publicado](%s) - %s' \
+              "${repository_name}" "${version_link}" "${publish_link}" "${commit_message}"
           else
-            printf -v message ':rocket: %s %s %s - %s' \
-              "${repository_name}" "${VERSION}" "${result_label#* }" "${commit_message}"
+            publish_link="$(job_url 'Publish Docker image')"
+            deploy_link="$(job_url 'Deploy .* to')"
+            printf -v message ':rocket: %s %s [Publicado](%s) y [deployado](%s) - %s' \
+              "${repository_name}" "${version_link}" "${publish_link}" "${deploy_link}" "${commit_message}"
           fi
           [[ -n "${REASON}" ]] && message+=$'\nMotivo: '${REASON}
           {
