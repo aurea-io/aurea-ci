@@ -82,21 +82,23 @@ class TaxonomyEngine:
             sub = parts[1] if len(parts) > 1 else "tenant"
             return "core", f"core.{sub}"
 
-        # 3. Si alguna parte de la ruta coincide con una página canónica de structure.json
-        for part in reversed(parts):
+        # 3. Si el prefijo coincide con una sección canónica de structure.json (ej: /commerce/orders)
+        if parts and parts[0] in self.sections:
+            sec = parts[0]
+            if len(parts) > 1 and parts[1] in self.page_to_section and self.page_to_section[parts[1]][0] == sec:
+                return self.page_to_section[parts[1]]
+            sub = parts[1] if len(parts) > 1 else sec
+            return sec, f"{sec}.{sub}"
+
+        # 4. Si los segmentos coinciden con una página canónica de structure.json (de izquierda a derecha para priorizar el recurso raíz)
+        for part in parts:
             if part in self.page_to_section:
                 return self.page_to_section[part]
 
-        # 4. Si alguna parte de la ruta coincide con un módulo canónico de structure.json
-        for part in reversed(parts):
+        # 5. Si los segmentos coinciden con un módulo canónico de structure.json (de izquierda a derecha)
+        for part in parts:
             if part in self.module_to_section:
                 return self.module_to_section[part]
-
-        # 5. Si el prefijo coincide con una sección canónica de structure.json
-        if parts and parts[0] in self.sections:
-            sec = parts[0]
-            sub = parts[1] if len(parts) > 1 else sec
-            return sec, f"{sec}.{sub}"
 
         # 6. Chequear áreas compuestas de area.json (ej: platform.tenants, platform.plans)
         for part in parts:
