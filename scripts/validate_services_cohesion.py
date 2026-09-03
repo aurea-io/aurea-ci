@@ -69,8 +69,13 @@ class TaxonomyEngine:
         parts = clean_ep.split("/")
 
         # 1. Si la ruta pertenece al scope /auth o a un área transversal directa de area.json
-        if parts and parts[0] in self.areas:
-            return parts[0], parts[0]
+        if parts:
+            if parts[0] in self.areas:
+                return parts[0], parts[0]
+            for area_key in self.areas:
+                sub = area_key.split(".")[-1]
+                if parts[0] == sub:
+                    return area_key.split(".")[0], area_key
 
         # 2. Si la ruta pertenece al scope /tenant (administración nuclear de core)
         if parts and parts[0] == "tenant":
