@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Write workflow summary
         if: ${{ always() }}
+        env:
+          JOB_RESULT: ${{ needs.scripts.result }}
         run: |
           {
             echo "## Workflow summary"
@@ -32,5 +34,11 @@ jobs:
             echo
             echo "| Job | Estado | Motivo |"
             echo "| --- | --- | --- |"
-            echo "| `scripts` | `${{ needs.scripts.result }}` | `${{ needs.scripts.result == 'success' && 'Completado correctamente' || needs.scripts.result == 'failure' && 'Falló; revisar los logs del job' || needs.scripts.result == 'skipped' && 'Omitido porque no se cumplió su condición' || format('Resultado: {0}', needs.scripts.result) }}` |"
+            case "${JOB_RESULT}" in
+              success) reason="Completado correctamente" ;;
+              failure) reason="Falló; revisar los logs del job" ;;
+              skipped) reason="Omitido porque no se cumplió su condición" ;;
+              *) reason="Resultado: ${JOB_RESULT}" ;;
+            esac
+            echo "| \`scripts\` | \`${JOB_RESULT}\` | \`${reason}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
